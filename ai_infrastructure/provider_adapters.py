@@ -35,7 +35,7 @@ class GeminiAdapter(BaseProviderAdapter):
         t0 = time.time()
         try:
             full_prompt = f"{system_prompt}\n\n{user_prompt}" if system_prompt else user_prompt
-            response = self.model.generate_content(full_prompt)
+            response = self.model.generate_content(full_prompt, request_options={"timeout": 10})
             duration = int((time.time() - t0) * 1000)
             return True, response.text, {"durationMs": duration, "provider": "gemini", "model": self.model_name}
         except Exception as e:
@@ -80,14 +80,19 @@ class OpenAIAdapter(BaseProviderAdapter):
             logger.error(f"[OpenAIAdapter] Error: {e}")
             return False, "", {"error": str(e), "provider": "openai"}
 
-class GrokAdapter(BaseProviderAdapter):
-    def __init__(self, model_name: str = "grok-beta"):
-        super().__init__("grok", model_name)
-        self.api_key = os.getenv("GROK_API_KEY") or os.getenv("XAI_API_KEY")
+class GroqAdapter(BaseProviderAdapter):
+    def __init__(self, model_name: str = "llama-3.3-70b-versatile"):
+        super().__init__("groq", model_name)
+        self.api_key = os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY")
 
     def generate(self, system_prompt: str, user_prompt: str) -> Tuple[bool, str, Dict[str, Any]]:
         if not self.api_key:
-            return False, "", {"error": "GROK_API_KEY missing"}
+            return False, "", {"error": "GROQ_API_KEY missing"}
+
+        # Normalize model name for Groq API
+        effective_model = self.model_name
+        if effective_model in ["grok-beta", "grok-2"]:
+            effective_model = "llama-3.3-70b-versatile"
 
         t0 = time.time()
         try:
@@ -95,28 +100,32 @@ class GrokAdapter(BaseProviderAdapter):
             import json
 
             req_body = {
-                "model": self.model_name,
+                "model": effective_model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ]
             }
             req = urllib.request.Request(
-                "https://api.x.ai/v1/chat/completions",
+                "https://api.groq.com/openai/v1/chat/completions",
                 data=json.dumps(req_body).encode("utf-8"),
                 headers={
                     "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.api_key}"
+                    "Authorization": f"Bearer {self.api_key}",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) VeriProof/2.0"
                 }
             )
             with urllib.request.urlopen(req, timeout=15) as resp:
                 res_data = json.loads(resp.read().decode("utf-8"))
                 text = res_data["choices"][0]["message"]["content"]
                 duration = int((time.time() - t0) * 1000)
-                return True, text, {"durationMs": duration, "provider": "grok", "model": self.model_name}
+                return True, text, {"durationMs": duration, "provider": "groq", "model": effective_model}
         except Exception as e:
-            logger.error(f"[GrokAdapter] Error: {e}")
-            return False, "", {"error": str(e), "provider": "grok"}
+            logger.error(f"[GroqAdapter] Error: {e}")
+            return False, "", {"error": str(e), "provider": "groq"}
+
+class GrokAdapter(GroqAdapter):
+    pass
 
 class LocalFallbackAdapter(BaseProviderAdapter):
     def __init__(self, model_name: str = "heuristic_fallback"):
