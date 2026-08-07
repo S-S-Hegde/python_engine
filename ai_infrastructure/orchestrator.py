@@ -5,6 +5,7 @@ VeriProof AI Infrastructure Foundation
 import logging
 import time
 import uuid
+import os
 from typing import Dict, Any, Optional
 
 from .capabilities import AICapability, CAPABILITY_ROUTING, MODEL_ALIASES
@@ -12,22 +13,73 @@ from .prompt_registry import PromptRegistry
 from .circuit_breaker import ProviderHealthMonitor
 from .cache_manager import CacheManager
 from .schema_validator import ResponseValidator
-from .provider_adapters import GeminiAdapter, OpenAIAdapter, GrokAdapter, LocalFallbackAdapter
+from .provider_adapters import (
+    GeminiAdapter,
+    OpenAIAdapter,
+    GroqAdapter,
+    OpenRouterAdapter,
+    MistralAdapter,
+    CohereAdapter,
+    NvidiaAdapter,
+    LocalFallbackAdapter,
+    get_env_secret
+)
 
 logger = logging.getLogger("ai_infrastructure.orchestrator")
 
 class AIOrchestratorService:
     @classmethod
+    def print_provider_status_matrix(cls) -> Dict[str, str]:
+        """Audit environment variables and return readiness matrix for all configured AI providers."""
+        providers_check = [
+            ("Gemini", ["GEMINI_API_KEY"]),
+            ("Groq", ["GROQ_API_KEY", "GROK_API_KEY"]),
+            ("OpenRouter", ["OPENROUTER_API_KEY", "OPenRouter_API_Key"]),
+            ("Mistral", ["MISTRAL_API_KEY", "Mistal_API_Key"]),
+            ("Cohere", ["COHERE_API_KEY", "Cohere_API_Key"]),
+            ("NVIDIA", ["NVIDIA_API_KEY", "NVIDIA_NIM_API_Key"]),
+            ("OpenAI", ["OPENAI_API_KEY"]),
+        ]
+        
+        status_matrix = {}
+        print("\n=========================================================================")
+        print("   VERIPROOF UNIFIED AI PROVIDER ORCHESTRATION MATRIX                   ")
+        print("=========================================================================")
+        
+        for name, env_keys in providers_check:
+            secret = get_env_secret(*env_keys)
+            if secret:
+                masked = f"{secret[:4]}...{secret[-4:]}" if len(secret) > 8 else "***"
+                status_matrix[name] = "READY"
+                dots = "." * (25 - len(name))
+                print(f"   {name} {dots} READY ({masked})")
+            else:
+                status_matrix[name] = "NOT_CONFIGURED"
+                dots = "." * (25 - len(name))
+                print(f"   {name} {dots} NOT_CONFIGURED")
+                
+        print("=========================================================================\n")
+        return status_matrix
+
+    @classmethod
     def get_adapter(cls, provider_info: Dict[str, str]):
-        provider = provider_info.get("provider", "gemini")
-        model = provider_info.get("model", "gemini-2.0-flash")
+        provider = provider_info.get("provider", "groq").lower()
+        model = provider_info.get("model", "llama-3.3-70b-versatile")
 
         if provider == "gemini":
             return GeminiAdapter(model)
         elif provider == "openai":
             return OpenAIAdapter(model)
-        elif provider == "grok":
-            return GrokAdapter(model)
+        elif provider in ["groq", "grok"]:
+            return GroqAdapter(model)
+        elif provider == "openrouter":
+            return OpenRouterAdapter(model)
+        elif provider == "mistral":
+            return MistralAdapter(model)
+        elif provider == "cohere":
+            return CohereAdapter(model)
+        elif provider == "nvidia":
+            return NvidiaAdapter(model)
         else:
             return LocalFallbackAdapter(model)
 
@@ -70,14 +122,14 @@ class AIOrchestratorService:
         alias_name = CAPABILITY_ROUTING.get(capability, "json_fast")
         routing_tiers = MODEL_ALIASES.get(alias_name, MODEL_ALIASES["json_fast"])
 
-        providers_to_try = [
-            routing_tiers["primary"],
-            routing_tiers["fallback_1"],
-            routing_tiers["fallback_2"],
-            {"provider": "local", "model": "heuristic_fallback"}
-        ]
+        providers_to_try = []
+        for key in ["primary", "fallback_1", "fallback_2", "fallback_3", "fallback_4", "fallback_5", "fallback_6"]:
+            if key in routing_tiers:
+                providers_to_try.append(routing_tiers[key])
+        providers_to_try.append({"provider": "local", "model": "heuristic_fallback"})
 
         # 5. Execute Fallback Chain
+        retries = 0
         for tier_idx, prov_info in enumerate(providers_to_try):
             prov_name = prov_info["provider"]
             breaker = ProviderHealthMonitor.get_breaker(prov_name)
@@ -92,6 +144,8 @@ class AIOrchestratorService:
             success, raw_output, meta = adapter.generate(system_prompt, user_prompt)
 
             if success:
+                logger.info(f"[{corr_id}] RAW AI RESPONSE from '{prov_name}' ({len(raw_output)} bytes):\n================ RAW AI RESPONSE ================\n{raw_output}\n================================================")
+                
                 # 6. Structured Schema Validation & Parsing
                 is_json_task = capability in [AICapability.JSON_EXTRACTION, AICapability.STRUCTURED_VALIDATION, AICapability.CODE_GRADING]
                 
@@ -110,7 +164,8 @@ class AIOrchestratorService:
                             "result": parsed_json,
                             "provider": prov_name,
                             "model": prov_info["model"],
-                            "latencyMs": meta.get("durationMs", 0)
+                            "latencyMs": meta.get("durationMs", 0),
+                            "retries": retries
                         }
                     else:
                         breaker.record_failure(f"Schema validation failed: {val_err}")
@@ -127,9 +182,11 @@ class AIOrchestratorService:
                         "result": raw_output,
                         "provider": prov_name,
                         "model": prov_info["model"],
-                        "latencyMs": meta.get("durationMs", 0)
+                        "latencyMs": meta.get("durationMs", 0),
+                        "retries": retries
                     }
             else:
+                retries += 1
                 breaker.record_failure(meta.get("error", "Unknown error"))
 
         # Final Local Fallback if all API attempts failed
@@ -143,8 +200,10 @@ class AIOrchestratorService:
             "prompt_id": prompt_id,
             "version": prompt_def.version,
             "cached": False,
-            "result": parsed_local or local_out,
-            "provider": "local_fallback",
-            "model": "heuristic",
-            "latencyMs": 1
+            "result": parsed_local,
+            "provider": "local",
+            "model": "heuristic_fallback",
+            "latencyMs": 1,
+            "retries": retries,
+            "fallback": True
         }

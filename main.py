@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -190,6 +191,9 @@ class GithubVerificationRequest(BaseModel):
 class AssessmentRequest(BaseModel):
     claims: List[Any]
     difficulty: Optional[str] = "intermediate"
+    resume_description: Optional[str] = ""
+    job_description: Optional[str] = ""
+    job_title: Optional[str] = ""
 
 class GradeSubmissionRequest(BaseModel):
     problem_statement: str
@@ -309,6 +313,14 @@ def create_error_response(
     return JSONResponse(status_code=status_code, content=content)
 
 # ==========================================
+# STARTUP HANDLER
+# ==========================================
+@app.on_event("startup")
+async def startup_event():
+    logger.info("VeriProof AI Engine starting up...")
+    AIOrchestratorService.print_provider_status_matrix()
+
+# ==========================================
 # EXCEPTION HANDLERS
 # ==========================================
 @app.exception_handler(HTTPException)
@@ -376,13 +388,71 @@ async def extract_claims_pdf(file: UploadFile = File(...)):
             payload_inputs={"resume_text": extracted_text},
             correlation_id=request_id
         )
-        real_claims = orch_res["result"]
+        raw_result = orch_res.get("result", {})
+        selected_provider = orch_res.get("provider", "unknown")
         
-        # Ensure we always have a list even if wrapped in a dict
-        if isinstance(real_claims, dict) and "claims" in real_claims:
-            real_claims = real_claims["claims"]
-        elif not isinstance(real_claims, list):
-            real_claims = []
+        logger.info(f"[{request_id}] Claim extraction completed via provider '{selected_provider}'. Normalizing JSON response...")
+        
+        # Step 36F: Robust Normalization across all provider JSON shapes
+        raw_claims = []
+        if isinstance(raw_result, dict):
+            if "claims" in raw_result and isinstance(raw_result["claims"], list):
+                raw_claims = raw_result["claims"]
+            elif "skills" in raw_result and isinstance(raw_result["skills"], list):
+                raw_claims = raw_result["skills"]
+            elif "technologies" in raw_result and isinstance(raw_result["technologies"], list):
+                raw_claims = raw_result["technologies"]
+            elif "competencies" in raw_result and isinstance(raw_result["competencies"], list):
+                raw_claims = raw_result["competencies"]
+            else:
+                lists = [v for v in raw_result.values() if isinstance(v, list)]
+                raw_claims = lists[0] if lists else []
+        elif isinstance(raw_result, list):
+            raw_claims = raw_result
+
+        # Normalize every claim into standard dictionary shape
+        normalized_claims = []
+        for idx, item in enumerate(raw_claims):
+            if isinstance(item, str):
+                item_str = item.strip()
+                if item_str:
+                    normalized_claims.append({
+                        "claim_id": f"claim_{idx + 1}",
+                        "skill": item_str,
+                        "context": f"Extracted skill from resume text",
+                        "source_quote": item_str,
+                        "category": "Skill",
+                        "confidence": 90
+                    })
+            elif isinstance(item, dict):
+                skill_name = item.get("skill") or item.get("claim") or item.get("name") or item.get("title") or ""
+                if skill_name:
+                    normalized_claims.append({
+                        "claim_id": item.get("claim_id") or f"claim_{idx + 1}",
+                        "skill": str(skill_name).strip(),
+                        "context": item.get("context") or item.get("evidence") or item.get("description") or "Resume technical claim",
+                        "source_quote": item.get("source_quote") or item.get("quote") or str(skill_name),
+                        "category": item.get("category") or "Skill",
+                        "confidence": item.get("confidence") or 90
+                    })
+
+        # Safeguard Fallback: If AI returned 0 claims but extracted_text has text, extract skills via keyword matcher
+        if not normalized_claims and extracted_text:
+            logger.warning(f"[{request_id}] AI returned 0 claims. Running deterministic keyword skill extractor safeguard...")
+            COMMON_SKILLS = ["Python", "React", "Node.js", "JavaScript", "TypeScript", "Docker", "Kubernetes", "PostgreSQL", "MongoDB", "AWS", "Git", "Java", "C++", "HTML", "CSS", "SQL", "Express", "REST API", "PyTorch", "TensorFlow", "FastAPI"]
+            found_skills = [s for s in COMMON_SKILLS if re.search(r'\b' + re.escape(s) + r'\b', extracted_text, re.IGNORECASE)]
+            for idx, s in enumerate(found_skills):
+                normalized_claims.append({
+                    "claim_id": f"fallback_claim_{idx + 1}",
+                    "skill": s,
+                    "context": f"Extracted skill via text pattern matcher",
+                    "source_quote": s,
+                    "category": "Skill",
+                    "confidence": 85
+                })
+
+        real_claims = normalized_claims
+        logger.info(f"[{request_id}] Extracted & normalized {len(real_claims)} claims successfully.")
     except Exception as e:
         return create_error_response(
             request_id=request_id,
@@ -390,7 +460,7 @@ async def extract_claims_pdf(file: UploadFile = File(...)):
             stage=stage_name,
             started_at=started_at,
             start_perf=start_perf,
-            message="Gemini LLM processing failed for PDF claim extraction.",
+            message="LLM processing failed for PDF claim extraction.",
             details=str(e),
             status_code=500,
         )
@@ -1147,12 +1217,22 @@ async def generate_custom_assessment(payload: AssessmentRequest):
     try:
         difficulty = payload.difficulty or "intermediate"
         skills_text = ", ".join([c.get("skill", "") for c in payload.claims if isinstance(c, dict) and c.get("skill")] or ["Software Engineering"])
+        resume_desc = payload.resume_description or "Standard Candidate Software Engineering Background"
+        job_desc = payload.job_description or "General Software Development"
+        job_title = payload.job_title or "Software Engineer"
 
         # Execute through Multi-LLM AI Orchestrator Service
         try:
             orch_res = AIOrchestratorService.execute_task(
                 prompt_id="assessment_mcq_generator",
-                payload_inputs={"num_questions": 10, "difficulty": difficulty, "skills_text": skills_text},
+                payload_inputs={
+                    "num_questions": 10,
+                    "difficulty": difficulty,
+                    "skills_text": skills_text,
+                    "resume_description": resume_desc[:3000],
+                    "job_description": job_desc[:3000],
+                    "job_title": job_title
+                },
                 correlation_id=request_id
             )
             mcqs = orch_res.get("result")

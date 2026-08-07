@@ -19,37 +19,45 @@ class AICapability(str, enum.Enum):
     EVIDENCE_FUSION = "EVIDENCE_FUSION"
     TRUST_SCORING = "TRUST_SCORING"
 
-# Model Alias Mapping to Provider & Concrete Models
+# Model Alias Mapping to Provider & Concrete Models across Groq, OpenRouter, Mistral, Cohere, Gemini, OpenAI, NVIDIA
 MODEL_ALIASES = {
     "json_fast": {
-        "primary": {"provider": "gemini", "model": "gemini-2.0-flash"},
-        "fallback_1": {"provider": "openai", "model": "gpt-4o-mini"},
-        "fallback_2": {"provider": "grok", "model": "grok-beta"},
+        "primary": {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+        "fallback_1": {"provider": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct"},
+        "fallback_2": {"provider": "mistral", "model": "mistral-small-latest"},
+        "fallback_3": {"provider": "cohere", "model": "command-r-plus"},
+        "fallback_4": {"provider": "gemini", "model": "gemini-2.0-flash"},
+        "fallback_5": {"provider": "openai", "model": "gpt-4o-mini"},
+        "fallback_6": {"provider": "nvidia", "model": "meta/llama-3.3-70b-instruct"},
     },
     "code_reasoning": {
-        "primary": {"provider": "openai", "model": "gpt-4o-mini"},
-        "fallback_1": {"provider": "gemini", "model": "gemini-2.0-flash"},
-        "fallback_2": {"provider": "local", "model": "heuristic_static"},
+        "primary": {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+        "fallback_1": {"provider": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct"},
+        "fallback_2": {"provider": "mistral", "model": "mistral-small-latest"},
+        "fallback_3": {"provider": "cohere", "model": "command-r-plus"},
+        "fallback_4": {"provider": "gemini", "model": "gemini-2.0-flash"},
     },
     "doc_writer": {
-        "primary": {"provider": "openai", "model": "gpt-4o"},
-        "fallback_1": {"provider": "gemini", "model": "gemini-1.5-pro"},
-        "fallback_2": {"provider": "grok", "model": "grok-2"},
+        "primary": {"provider": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct"},
+        "fallback_1": {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+        "fallback_2": {"provider": "mistral", "model": "mistral-small-latest"},
+        "fallback_3": {"provider": "cohere", "model": "command-r-plus"},
     },
     "behavior": {
-        "primary": {"provider": "grok", "model": "grok-2"},
-        "fallback_1": {"provider": "gemini", "model": "gemini-2.0-flash"},
-        "fallback_2": {"provider": "openai", "model": "gpt-4o-mini"},
+        "primary": {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+        "fallback_1": {"provider": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct"},
+        "fallback_2": {"provider": "mistral", "model": "mistral-small-latest"},
+        "fallback_3": {"provider": "cohere", "model": "command-r-plus"},
     },
     "executive_synthesis": {
-        "primary": {"provider": "openai", "model": "gpt-4o"},
-        "fallback_1": {"provider": "gemini", "model": "gemini-1.5-pro"},
-        "fallback_2": {"provider": "grok", "model": "grok-2"},
+        "primary": {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+        "fallback_1": {"provider": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct"},
+        "fallback_2": {"provider": "cohere", "model": "command-r-plus"},
     },
     "trust_engine": {
-        "primary": {"provider": "gemini", "model": "gemini-2.0-flash"},
-        "fallback_1": {"provider": "openai", "model": "gpt-4o-mini"},
-        "fallback_2": {"provider": "local", "model": "heuristic_trust"},
+        "primary": {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+        "fallback_1": {"provider": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct"},
+        "fallback_2": {"provider": "mistral", "model": "mistral-small-latest"},
     },
 }
 

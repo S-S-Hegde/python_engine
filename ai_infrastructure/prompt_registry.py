@@ -52,8 +52,25 @@ PromptRegistry.register(
         prompt_id="resume_claims_extraction",
         version="1.0",
         capability=AICapability.JSON_EXTRACTION,
-        system_prompt="You are an expert AI resume parser. Extract candidate claims into valid JSON matching the specified schema.",
-        user_template="Extract all candidate claims from the following resume text:\n\n{resume_text}",
+        system_prompt=(
+            "You are an expert AI resume parser. You MUST extract all technical skills, programming languages, frameworks, "
+            "tools, databases, and engineering claims into a JSON object with a single top-level key 'claims' containing an array of claim objects.\n\n"
+            "Required JSON Schema:\n"
+            "{\n"
+            '  "claims": [\n'
+            '    {\n'
+            '      "claim_id": "claim_1",\n'
+            '      "skill": "Exact Skill/Tool Name (e.g. React.js, Python, PostgreSQL)",\n'
+            '      "context": "Brief explanation of candidate experience with this skill",\n'
+            '      "source_quote": "Direct snippet or mention from resume text",\n'
+            '      "category": "Skill",\n'
+            '      "confidence": 95\n'
+            '    }\n'
+            '  ]\n'
+            "}\n\n"
+            "Do NOT include markdown fences or any text outside the valid JSON object."
+        ),
+        user_template="Extract all candidate claims, skills, tools, and technical experience from the following resume text:\n\n{resume_text}",
         deterministic=True
     )
 )
@@ -74,8 +91,16 @@ PromptRegistry.register(
         prompt_id="assessment_mcq_generator",
         version="1.0",
         capability=AICapability.JSON_EXTRACTION,
-        system_prompt="You are a senior technical interviewer. Generate multiple choice assessment questions in valid JSON.",
-        user_template="Generate {num_questions} multiple choice questions for difficulty '{difficulty}' on skills: {skills_text}",
+        system_prompt="You are a senior technical interviewer for VeriProof forensic credential platform. Generate high-precision, role-tailored multiple choice assessment questions in valid JSON.",
+        user_template=(
+            "Generate {num_questions} technical multiple choice questions (MCQs) for difficulty '{difficulty}'.\n"
+            "Job Title: {job_title}\n"
+            "Target Skills: {skills_text}\n\n"
+            "Candidate Resume Description & Evidence:\n{resume_description}\n\n"
+            "Job Description & Requirements:\n{job_description}\n\n"
+            "Formulate challenging questions directly evaluating the candidate's declared claims against the job role requirements.\n"
+            "Return JSON object with 'questions': list of dicts containing 'question_text', 'options' (list of 4 strings), 'correct_answer', and 'skill'."
+        ),
         deterministic=False
     )
 )
