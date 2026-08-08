@@ -356,11 +356,14 @@ async def extract_claims_pdf(file: UploadFile = File(...)):
         file_content = await file.read()
         file_lower = (file.filename or "").lower()
 
-        if file_lower.endswith(".pdf"):
+        is_pdf = file_lower.endswith(".pdf") or (file.content_type and "pdf" in file.content_type.lower()) or (file_content[:1024].find(b"%PDF-") != -1)
+        if is_pdf:
             try:
                 pdf_reader = PdfReader(io.BytesIO(file_content))
                 extracted_text = "".join([page.extract_text() or "" for page in pdf_reader.pages])
                 page_count = len(pdf_reader.pages)
+                if not extracted_text.strip():
+                    extracted_text = file_content.decode("utf-8", errors="ignore")
             except Exception:
                 extracted_text = file_content.decode("utf-8", errors="ignore")
                 page_count = 1

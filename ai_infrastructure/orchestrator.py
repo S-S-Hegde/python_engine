@@ -25,6 +25,8 @@ from .provider_adapters import (
     get_env_secret
 )
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 logger = logging.getLogger("ai_infrastructure.orchestrator")
 
 class AIOrchestratorService:
@@ -127,6 +129,48 @@ class AIOrchestratorService:
             if key in routing_tiers:
                 providers_to_try.append(routing_tiers[key])
         providers_to_try.append({"provider": "local", "model": "heuristic_fallback"})
+
+        # 5. Parallel Provider Competition Execution (Ultra-Fast Response)
+        valid_providers = [p for p in providers_to_try if p["provider"] != "local" and ProviderHealthMonitor.get_breaker(p["provider"]).can_execute()]
+        
+        if valid_providers and len(valid_providers) > 1:
+            def _try_provider(prov_info):
+                prov_name = prov_info["provider"]
+                adapter = cls.get_adapter(prov_info)
+                success, raw_output, meta = adapter.generate(system_prompt, user_prompt)
+                if success:
+                    is_json_task = capability in [AICapability.JSON_EXTRACTION, AICapability.STRUCTURED_VALIDATION, AICapability.CODE_GRADING]
+                    if is_json_task:
+                        val_ok, parsed_json, _ = ResponseValidator.validate_and_parse_json(raw_output)
+                        if val_ok:
+                            return (prov_name, prov_info["model"], parsed_json, meta.get("durationMs", 0))
+                    else:
+                        return (prov_name, prov_info["model"], raw_output, meta.get("durationMs", 0))
+                return None
+
+            try:
+                with ThreadPoolExecutor(max_workers=min(len(valid_providers), 5)) as executor:
+                    futures = {executor.submit(_try_provider, p): p for p in valid_providers}
+                    for future in as_completed(futures):
+                        res = future.result()
+                        if res:
+                            prov_name, model_name, result_data, latency_ms = res
+                            logger.info(f"[{corr_id}] Ultra-Fast Parallel AI Win from '{prov_name}' ({latency_ms} ms)!")
+                            if cache_key:
+                                CacheManager.set(cache_key, result_data)
+                            return {
+                                "correlation_id": corr_id,
+                                "prompt_id": prompt_id,
+                                "version": prompt_def.version,
+                                "cached": False,
+                                "result": result_data,
+                                "provider": prov_name,
+                                "model": model_name,
+                                "latencyMs": latency_ms,
+                                "retries": 0
+                            }
+            except Exception as par_err:
+                logger.warning(f"[{corr_id}] Parallel AI execution notice: {par_err}. Falling back to sequential chain.")
 
         # 5. Execute Fallback Chain
         retries = 0
