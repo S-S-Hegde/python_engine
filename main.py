@@ -73,12 +73,27 @@ class ClaimVerificationEngine:
             }
 
         matched = 0
-        req_set = set(self.job_requirements)
-        for skill in extracted_skills:
-            if any(req in skill or skill in req for req in req_set):
-                matched += 1
+        def norm(s: str) -> str:
+            return re.sub(r'[^a-z0-9]', '', str(s).lower().replace('.js', ''))
 
-        score = round((matched / len(self.job_requirements)) * 100.0, 1) if self.job_requirements else 85.0
+        norm_reqs = [norm(req) for req in self.job_requirements if req]
+        norm_skills = [norm(sk) for sk in extracted_skills if sk]
+
+        matched_set = set()
+        for req in norm_reqs:
+            if not req:
+                continue
+            for sk in norm_skills:
+                if not sk:
+                    continue
+                if req == sk or req in sk or sk in req:
+                    matched_set.add(req)
+                    break
+
+        matched = len(matched_set)
+        # Cap mandatory target skill divisor at top 8 core requirements to prevent score dilution on 20+ skill blueprints
+        effective_req_count = min(len(norm_reqs), 8) if norm_reqs else 1
+        score = round(min(100.0, (matched / effective_req_count) * 100.0), 1) if norm_reqs else 85.0
         return {
             "evaluation_mode": "JOB_ALIGNMENT",
             "score": score,
