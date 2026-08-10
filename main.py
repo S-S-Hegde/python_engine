@@ -91,9 +91,8 @@ class ClaimVerificationEngine:
                     break
 
         matched = len(matched_set)
-        # Cap mandatory target skill divisor at top 8 core requirements to prevent score dilution on 20+ skill blueprints
-        effective_req_count = min(len(norm_reqs), 8) if norm_reqs else 1
-        score = round(min(100.0, (matched / effective_req_count) * 100.0), 1) if norm_reqs else 85.0
+        total_reqs = len(norm_reqs) if norm_reqs else 1
+        score = round(min(100.0, (matched / total_reqs) * 100.0), 1) if norm_reqs else 85.0
         return {
             "evaluation_mode": "JOB_ALIGNMENT",
             "score": score,
