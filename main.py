@@ -138,6 +138,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+def read_root():
+    return {
+        "service": "VeriProof Python AI Engine",
+        "status": "operational",
+        "version": "2.0.0",
+        "orchestration_matrix": "READY"
+    }
+
+@app.get("/health")
+def read_health():
+    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 # ==========================================
 # REQUEST MODELS
 # ==========================================
