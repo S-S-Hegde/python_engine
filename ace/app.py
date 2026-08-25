@@ -7,7 +7,7 @@ import os
 import asyncio
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Set, List, Dict, Any
+from typing import Set, List, Dict, Any, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
