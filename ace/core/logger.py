@@ -187,10 +187,11 @@ class ViolationLogger:
         Executes VLM verification in a background thread. Only publishes
         and saves screenshot evidence if verified as a genuine cheating violation.
         """
-        # If VLM verification is disabled or no key provided, treat as verified locally
-        if not Config.VLM_VERIFICATION_ENABLED or not (Config.GROQ_API_KEY or Config.GEMINI_API_KEY or Config.OPENAI_API_KEY):
+        # Direct local CV detections (Multiple Faces, No Face, Cell Phone, Screens) are verified directly
+        deterministic_types = {"multiple_faces", "no_face", "cell_phone", "secondary_screen", "tab_switch", "clipboard_paste"}
+        if violation_type in deterministic_types or not Config.VLM_VERIFICATION_ENABLED or not (Config.GROQ_API_KEY or Config.GEMINI_API_KEY or Config.OPENAI_API_KEY or Config.NVIDIA_API_KEY):
             is_verified = True
-            vlm_reason = "Verified by local debounced AI rules (VLM API key not configured)"
+            vlm_reason = f"Verified by direct optical AI detection ({violation_type.upper()})"
         else:
             is_verified, vlm_reason = self.verify_with_vlm(frame, violation_type, details)
 
