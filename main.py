@@ -138,6 +138,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount ACE Anti-Cheat Proctoring Router
+from ace.router import proctor_router, start_proctor_engine, stop_proctor_engine
+app.include_router(proctor_router)
+
+
 @app.get("/")
 def read_root():
     return {
@@ -345,6 +350,11 @@ def create_error_response(
 async def startup_event():
     logger.info("VeriProof AI Engine starting up...")
     AIOrchestratorService.print_provider_status_matrix()
+    start_proctor_engine()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    stop_proctor_engine()
 
 # ==========================================
 # EXCEPTION HANDLERS
