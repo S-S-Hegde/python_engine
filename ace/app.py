@@ -75,16 +75,11 @@ def on_violation_event(event_data: Dict[str, Any]):
 async def lifespan(app: FastAPI):
     """
     FastAPI Lifespan Context Manager.
-    Gracefully starts camera, AI models, and background workers on server startup,
-    and cleanly releases hardware resources on shutdown.
+    Subscribes violation handlers on startup and releases hardware resources on shutdown.
+    Camera is managed on-demand when active candidates connect.
     """
-    print("\n[ACE Server] Starting Proctoring Engine Lifespan...")
-    # Subscribe to violation broadcasts
+    print("\n[ACE Server] Initializing Proctoring Server Gateway (On-Demand Camera Mode)...")
     engine.logger.subscribe(on_violation_event)
-    # Start engine
-    engine.start()
-
-    # Background periodic telemetry broadcast task
     telemetry_broadcast_task = asyncio.create_task(_periodic_telemetry_broadcaster())
 
     yield
@@ -92,17 +87,18 @@ async def lifespan(app: FastAPI):
     print("\n[ACE Server] Shutting down Proctoring Engine Lifespan...")
     telemetry_broadcast_task.cancel()
     engine.logger.unsubscribe(on_violation_event)
-    engine.stop()
+    if engine._running:
+        engine.stop()
     print("[ACE Server] Lifespan cleanup complete.\n")
 
 
 async def _periodic_telemetry_broadcaster():
-    """Periodically broadcasts latest telemetry stats (10Hz) to all WebSocket clients."""
+    """Periodically broadcasts latest telemetry stats (10Hz) to all active WebSocket clients."""
     while True:
         try:
             await asyncio.sleep(0.1)  # 10 updates per second
-            telemetry = engine.get_telemetry()
-            if active_websockets:
+            if active_websockets and engine._running:
+                telemetry = engine.get_telemetry()
                 message = {
                     "event": "telemetry",
                     "data": telemetry,
@@ -117,29 +113,13 @@ async def _periodic_telemetry_broadcaster():
                     for d in dead:
                         active_websockets.discard(d)
 
-            # Handle automatic shutdown upon 60-second exam completion
-            if telemetry.get("should_shutdown"):
-                print("\n[ACE Server] 60-Second Exam Session Completed. Terminating application gracefully...")
-                shutdown_msg = {
-                    "event": "exam_completed",
-                    "message": "Exam session ended. Application is now closing.",
-                }
-                async with ws_lock:
-                    for ws in list(active_websockets):
-                        try:
-                            await ws.send_json(shutdown_msg)
-                        except Exception:
-                            pass
-                await asyncio.sleep(0.8)
-                try:
-                    engine.stop()
-                except Exception:
-                    pass
-                os._exit(0)
+                    if len(active_websockets) == 0 and engine._running:
+                        print("[ACE Engine] All clients disconnected. Releasing camera hardware...")
+                        engine.stop()
         except asyncio.CancelledError:
             break
         except Exception as e:
-            print(f"[ACE Server] Error in telemetry broadcast: {e}")
+            pass
 
 
 # Initialize FastAPI App
@@ -775,10 +755,14 @@ async def get_video_stream():
 async def websocket_telemetry_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for real-time telemetry and instant violation alerts.
+    Camera is activated on-demand upon connection and stopped when disconnected.
     """
     await websocket.accept()
     async with ws_lock:
         active_websockets.add(websocket)
+        if not engine._running:
+            print("[ACE Server] Active exam subscriber connected. Starting camera & AI models...")
+            engine.start()
 
     print(f"[ACE WebSocket] Client connected ({len(active_websockets)} total)")
 
@@ -808,6 +792,9 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
     finally:
         async with ws_lock:
             active_websockets.discard(websocket)
+            if len(active_websockets) == 0 and engine._running:
+                print("[ACE Server] No active exam subscribers. Stopping camera & freeing hardware...")
+                engine.stop()
         print(f"[ACE WebSocket] Client disconnected ({len(active_websockets)} remaining)")
 
 
@@ -922,5 +909,43 @@ async def submit_code_endpoint(payload: CodeSubmissionPayload):
     """
     evaluation = code_analyzer.evaluate_submission(payload.source_code)
     return {"status": "evaluated", "evaluation": evaluation}
+
+
+@app.post("/api/engine/start")
+@app.post("/api/exam/start_session")
+async def start_engine_endpoint():
+    """Starts/resumes the camera acquisition and AI proctoring loop."""
+    try:
+        engine.start()
+        return {"status": "started", "active": engine._running}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/engine/stop")
+@app.post("/api/exam/end_session")
+async def stop_engine_endpoint():
+    """Stops the camera and proctoring loop, releasing all hardware resources."""
+    try:
+        engine.stop()
+        return {"status": "stopped", "active": engine._running}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/shutdown")
+async def shutdown_server_endpoint():
+    """Gracefully terminates the ACE server process."""
+    async def _delayed_exit():
+        await asyncio.sleep(0.5)
+        try:
+            engine.stop()
+        except Exception:
+            pass
+        os._exit(0)
+
+    asyncio.create_task(_delayed_exit())
+    return {"status": "shutting_down", "message": "ACE server terminating gracefully..."}
+
 
 
