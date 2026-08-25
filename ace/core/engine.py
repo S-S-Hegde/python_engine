@@ -326,6 +326,10 @@ class ProctorEngine:
 
             display_frame = cv2.flip(frame, 1)
 
+            # Keep rolling frame buffer continuously populated for 3-frame burst snapshots
+            if self.logger:
+                self.logger.push_frame(display_frame)
+
             # Calculate 60-second countdown
             if self.exam_start_time is not None:
                 elapsed_exam = now - self.exam_start_time

@@ -14,6 +14,8 @@ from datetime import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict, List, Callable, Any, Tuple
+import collections
+import urllib.request
 import cv2
 import numpy as np
 
@@ -23,7 +25,7 @@ from ace.config import Config
 class ViolationLogger:
     """
     Manages proctoring alerts, temporal debouncing, background Groq VLM verification,
-    proof screenshot capture, and real-time subscriber broadcasting.
+    proof screenshot capture, 3-frame burst buffering, and real-time subscriber broadcasting.
     """
 
     def __init__(
@@ -48,14 +50,34 @@ class ViolationLogger:
         self._listeners: List[Callable[[Dict[str, Any]], None]] = []
         self._lock = threading.Lock()
 
-        # Background thread pool for non-blocking VLM API requests
-        self._vlm_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ACE-VLM-Worker")
+        # Rolling 15-frame ring buffer for 3-frame burst evidence capture
+        self._frame_buffer: collections.deque = collections.deque(maxlen=15)
+
+        # Background thread pool for non-blocking VLM API requests and burst uploads
+        self._vlm_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="ACE-VLM-Worker")
 
         # Setup logger
         self._setup_logger()
 
         # Initialize Groq client
         self._init_vlm()
+
+    def push_frame(self, frame: np.ndarray):
+        """Adds a copy of the live display frame to the rolling 15-frame buffer."""
+        if frame is not None:
+            with self._lock:
+                self._frame_buffer.append(frame.copy())
+
+    def get_burst_frames(self) -> List[Tuple[str, np.ndarray]]:
+        """Extracts 3 representative frames (start, mid, end) from the rolling buffer."""
+        with self._lock:
+            buf_len = len(self._frame_buffer)
+            if buf_len == 0:
+                return []
+            start_frame = self._frame_buffer[0].copy()
+            mid_frame = self._frame_buffer[buf_len // 2].copy()
+            end_frame = self._frame_buffer[-1].copy()
+            return [("start", start_frame), ("mid", mid_frame), ("end", end_frame)]
 
     def _setup_logger(self):
         """Configure structured file and console proctoring logger."""
@@ -190,7 +212,21 @@ class ViolationLogger:
         if frame is not None:
             filename = self._save_screenshot(frame, violation_type, details, vlm_reason)
 
-        # 3. Prepare real-time WebSocket event payload
+        # 3. Capture 3-frame burst buffer (start, mid, end) and dispatch to Node.js backend
+        burst_frames = self.get_burst_frames()
+        if not burst_frames and frame is not None:
+            burst_frames = [("start", frame), ("mid", frame), ("end", frame)]
+
+        if burst_frames:
+            self._vlm_executor.submit(
+                self._post_burst_to_backend,
+                violation_type,
+                details,
+                vlm_reason,
+                burst_frames,
+            )
+
+        # 4. Prepare real-time WebSocket event payload
         event_payload = {
             "event": "violation",
             "violation_type": violation_type,
@@ -202,13 +238,58 @@ class ViolationLogger:
             "screenshot_url": f"/api/screenshots/{filename}" if filename else None,
         }
 
-        # 4. Notify UI & WebSocket subscribers
+        # 5. Notify UI & WebSocket subscribers
         with self._lock:
             for listener in list(self._listeners):
                 try:
                     listener(event_payload)
                 except Exception as e:
                     self.logger.error(f"Error in violation listener: {e}")
+
+    def _post_burst_to_backend(
+        self,
+        violation_type: str,
+        details: str,
+        vlm_reason: str,
+        burst_frames: List[Tuple[str, np.ndarray]],
+    ):
+        """Asynchronously encodes and dispatches 3-frame burst to Node.js backend."""
+        try:
+            encoded_burst = []
+            for tag, f in burst_frames:
+                if f is None:
+                    continue
+                h, w = f.shape[:2]
+                target_w = 640
+                target_h = int(h * (target_w / w))
+                small_f = cv2.resize(f, (target_w, target_h), interpolation=cv2.INTER_AREA)
+                success, buf = cv2.imencode(".jpg", small_f, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                if success:
+                    b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
+                    encoded_burst.append({"tag": tag, "base64": b64})
+
+            backend_base = os.getenv("NODE_API_URL", "http://localhost:5000").rstrip("/")
+            backend_url = f"{backend_base}/api/exams/record-violation-snapshot"
+            payload = {
+                "type": violation_type,
+                "details": details,
+                "vlm_reason": vlm_reason,
+                "confidence": 0.95,
+                "timestamp": datetime.now().isoformat(),
+                "burstFrames": encoded_burst,
+            }
+
+            req = urllib.request.Request(
+                backend_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json", "User-Agent": "ACE-Vision-Engine/2.4"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status in (200, 201):
+                    self.logger.info(f"[Burst Snapshot] Dispatched 3-frame burst for '{violation_type}' to Node backend.")
+        except Exception as e:
+            self.logger.warning(f"[Burst Snapshot Note] Node backend upload note: {e}")
 
     def verify_with_vlm(
         self,
