@@ -47,10 +47,10 @@ class Config:
     DEBOUNCE_FRAMES_ENV: int = int(os.getenv("DEBOUNCE_FRAMES_ENV", "15"))
     VIOLATION_COOLDOWN_SEC: float = float(os.getenv("VIOLATION_COOLDOWN_SEC", "2.0"))
 
-    # Exam Session Timer Settings
-    EXAM_DURATION_SEC: int = int(os.getenv("EXAM_DURATION_SEC", "60"))
-    AUTO_CLOSE_ON_COMPLETE: bool = os.getenv("AUTO_CLOSE_ON_COMPLETE", "true").lower() in ("true", "1", "yes")
-    AUTO_CLOSE_GRACE_SEC: int = int(os.getenv("AUTO_CLOSE_GRACE_SEC", "3"))
+    # Exam Session Timer Settings (1 Hour Continuous Monitoring)
+    EXAM_DURATION_SEC: int = int(os.getenv("EXAM_DURATION_SEC", "3600"))
+    AUTO_CLOSE_ON_COMPLETE: bool = os.getenv("AUTO_CLOSE_ON_COMPLETE", "false").lower() in ("true", "1", "yes")
+    AUTO_CLOSE_GRACE_SEC: int = int(os.getenv("AUTO_CLOSE_GRACE_SEC", "10"))
 
     # Calibration & Head Pose Thresholds (Expanded Range)
     CALIBRATION_DURATION_SEC: int = int(os.getenv("CALIBRATION_DURATION_SEC", "5"))
