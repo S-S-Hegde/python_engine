@@ -64,7 +64,12 @@ class YOLODetectorWorker:
             return self
 
         print(f"[ACE Detector] Loading YOLOv10 model '{self.model_name}' (conf: {self.conf_threshold}, classes: {CHEATING_CLASSES_INDICES})...")
-        self.model = YOLO(self.model_name)
+        try:
+            self.model = YOLO(self.model_name)
+        except Exception as e:
+            print(f"[ACE Detector] Warning: Failed to load YOLO model '{self.model_name}': {e}. Continuing in mock detector mode.")
+            self.model = None
+
         self._running = True
         self._thread = threading.Thread(
             target=self._detection_loop, name="ACE-YOLO10Thread", daemon=True

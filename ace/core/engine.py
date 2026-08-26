@@ -264,12 +264,38 @@ class ProctorEngine:
                 self.baseline = {}
 
         if not self.baseline:
-            print("[ACE Engine] Running auto-calibration routine...")
-            self.baseline = run_calibration(
-                cap_or_camera=self.camera,
-                duration_sec=Config.CALIBRATION_DURATION_SEC,
-                show_ui=False,
-            )
+            if getattr(self.camera, "is_virtual", False):
+                print("[ACE Engine] Virtual camera mode detected. Setting standard baseline without delay.")
+                self.baseline = {
+                    "baseline_pitch": 0.0,
+                    "baseline_yaw": 0.0,
+                    "baseline_roll": 0.0,
+                    "std_pitch": 5.0,
+                    "std_yaw": 5.0,
+                    "std_roll": 5.0,
+                    "samples": 0,
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            else:
+                print("[ACE Engine] Running auto-calibration routine...")
+                try:
+                    self.baseline = run_calibration(
+                        cap_or_camera=self.camera,
+                        duration_sec=Config.CALIBRATION_DURATION_SEC,
+                        show_ui=False,
+                    )
+                except Exception as cal_err:
+                    print(f"[ACE Engine] Calibration warning: {cal_err}. Using default baseline.")
+                    self.baseline = {
+                        "baseline_pitch": 0.0,
+                        "baseline_yaw": 0.0,
+                        "baseline_roll": 0.0,
+                        "std_pitch": 5.0,
+                        "std_yaw": 5.0,
+                        "std_roll": 5.0,
+                        "samples": 0,
+                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    }
 
         print("[ACE Engine] Initializing MediaPipe Face & Pose Trackers...")
         self.tracker = FaceProctorTracker(baseline=self.baseline)

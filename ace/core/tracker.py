@@ -90,35 +90,40 @@ class FaceProctorTracker:
         self._hands_hidden_start: Optional[float] = None
 
         # Ensure model assets exist
-        valid_face_model = ensure_face_landmarker_model(face_model_path)
-        valid_pose_model = ensure_pose_landmarker_model(pose_model_path)
+        try:
+            valid_face_model = ensure_face_landmarker_model(face_model_path)
+            face_base_options = python.BaseOptions(model_asset_path=valid_face_model)
+            face_options = vision.FaceLandmarkerOptions(
+                base_options=face_base_options,
+                running_mode=vision.RunningMode.IMAGE,
+                num_faces=4,
+                min_face_detection_confidence=0.3,
+                min_face_presence_confidence=0.3,
+                min_tracking_confidence=0.3,
+                output_face_blendshapes=False,
+                output_facial_transformation_matrixes=False,
+            )
+            self.face_landmarker = vision.FaceLandmarker.create_from_options(face_options)
+        except Exception as e:
+            print(f"[ACE Tracker] Warning: FaceLandmarker init fallback: {e}")
+            self.face_landmarker = None
 
-        # 1. Initialize FaceLandmarker
-        face_base_options = python.BaseOptions(model_asset_path=valid_face_model)
-        face_options = vision.FaceLandmarkerOptions(
-            base_options=face_base_options,
-            running_mode=vision.RunningMode.IMAGE,
-            num_faces=4,
-            min_face_detection_confidence=0.3,
-            min_face_presence_confidence=0.3,
-            min_tracking_confidence=0.3,
-            output_face_blendshapes=False,
-            output_facial_transformation_matrixes=False,
-        )
-        self.face_landmarker = vision.FaceLandmarker.create_from_options(face_options)
-
-        # 2. Initialize PoseLandmarker
-        pose_base_options = python.BaseOptions(model_asset_path=valid_pose_model)
-        pose_options = vision.PoseLandmarkerOptions(
-            base_options=pose_base_options,
-            running_mode=vision.RunningMode.IMAGE,
-            num_poses=1,
-            min_pose_detection_confidence=0.4,
-            min_pose_presence_confidence=0.4,
-            min_tracking_confidence=0.4,
-            output_segmentation_masks=False,
-        )
-        self.pose_landmarker = vision.PoseLandmarker.create_from_options(pose_options)
+        try:
+            valid_pose_model = ensure_pose_landmarker_model(pose_model_path)
+            pose_base_options = python.BaseOptions(model_asset_path=valid_pose_model)
+            pose_options = vision.PoseLandmarkerOptions(
+                base_options=pose_base_options,
+                running_mode=vision.RunningMode.IMAGE,
+                num_poses=1,
+                min_pose_detection_confidence=0.4,
+                min_pose_presence_confidence=0.4,
+                min_tracking_confidence=0.4,
+                output_segmentation_masks=False,
+            )
+            self.pose_landmarker = vision.PoseLandmarker.create_from_options(pose_options)
+        except Exception as e:
+            print(f"[ACE Tracker] Warning: PoseLandmarker init fallback: {e}")
+            self.pose_landmarker = None
 
     def set_baseline(self, baseline: Dict[str, float]):
         """Update resting head pose baseline angles."""
@@ -238,6 +243,8 @@ class FaceProctorTracker:
         Returns: (posture_violation, posture_details, hands_violation, hands_details)
         """
         try:
+            if not self.pose_landmarker:
+                return False, "", False, ""
             pose_result = self.pose_landmarker.detect(mp_image)
             if not pose_result or not pose_result.pose_landmarks:
                 # If hands were already hidden, keep timer running
@@ -310,7 +317,7 @@ class FaceProctorTracker:
         posture_violation, posture_details, hands_violation, hands_details = self._last_posture
 
         # 3. FaceLandmarker Inference
-        face_results = self.face_landmarker.detect(mp_image)
+        face_results = self.face_landmarker.detect(mp_image) if self.face_landmarker else None
 
         analysis: Dict[str, Any] = {
             "face_count": 0,

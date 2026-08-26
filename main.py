@@ -355,12 +355,21 @@ def create_error_response(
 @app.on_event("startup")
 async def startup_event():
     logger.info("VeriProof AI Engine starting up...")
-    AIOrchestratorService.print_provider_status_matrix()
-    start_proctor_engine()
+    try:
+        AIOrchestratorService.print_provider_status_matrix()
+    except Exception as e:
+        logger.warning(f"AI Provider status matrix warning: {e}")
+    try:
+        start_proctor_engine()
+    except Exception as e:
+        logger.warning(f"Proctor engine startup warning: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    stop_proctor_engine()
+    try:
+        stop_proctor_engine()
+    except Exception as e:
+        logger.warning(f"Proctor engine shutdown warning: {e}")
 
 # ==========================================
 # EXCEPTION HANDLERS
