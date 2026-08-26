@@ -120,7 +120,10 @@ if not GEMINI_API_KEY:
     raise ValueError("API Key not found. Please check your .env file.")
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-3.5-flash")
+try:
+    model = genai.GenerativeModel("gemini-2.0-flash")
+except Exception:
+    model = genai.GenerativeModel("gemini-1.5-flash")
  
 # ==========================================
 # FASTAPI APP INITIALIZATION
@@ -217,7 +220,10 @@ class VerificationRequest(BaseModel):
 
 class GithubVerificationRequest(BaseModel):
     github_username: str
-    claims: List[Any]
+    claims: List[Any] = []
+    repo_data: Optional[Dict[str, Any]] = None
+    tree_paths: Optional[List[str]] = None
+    commits: Optional[List[Dict[str, Any]]] = None
 
 class AssessmentRequest(BaseModel):
     claims: List[Any]
@@ -1132,52 +1138,53 @@ async def verify_github_portfolio(payload: GithubVerificationRequest):
         if github_token:
             headers["Authorization"] = f"Bearer {github_token}"
 
-        tree_paths: List[str] = []
-        commits: List[Dict[str, Any]] = []
-        repo_data: Dict[str, Any] = {"name": f"{payload.github_username}-portfolio", "language": "JavaScript"}
+        tree_paths: List[str] = payload.tree_paths or []
+        commits: List[Dict[str, Any]] = payload.commits or []
+        repo_data: Dict[str, Any] = payload.repo_data or {"name": f"{payload.github_username}-portfolio", "language": "JavaScript"}
 
-        # Fetch live public repo metadata via GitHub API if available
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
-                repos_resp = await client.get(
-                    f"https://api.github.com/users/{payload.github_username}/repos?sort=updated&per_page=5",
-                    headers=headers
-                )
-                if repos_resp.status_code == 200:
-                    repos = repos_resp.json()
-                    if isinstance(repos, list) and len(repos) > 0:
-                        primary_repo = repos[0]
-                        repo_name = primary_repo.get("name", "portfolio-repo")
-                        owner = primary_repo.get("owner", {}).get("login", payload.github_username)
-                        default_branch = primary_repo.get("default_branch", "main")
-                        repo_data = {
-                            "name": repo_name,
-                            "language": primary_repo.get("language", "JavaScript"),
-                            "fork": primary_repo.get("fork", False),
-                            "stargazers_count": primary_repo.get("stargazers_count", 0),
-                            "forks_count": primary_repo.get("forks_count", 0)
-                        }
+        # Only fetch live if pre-fetched data was not supplied
+        if not tree_paths and not commits:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                try:
+                    repos_resp = await client.get(
+                        f"https://api.github.com/users/{payload.github_username}/repos?sort=updated&per_page=5",
+                        headers=headers
+                    )
+                    if repos_resp.status_code == 200:
+                        repos = repos_resp.json()
+                        if isinstance(repos, list) and len(repos) > 0:
+                            primary_repo = repos[0]
+                            repo_name = primary_repo.get("name", "portfolio-repo")
+                            owner = primary_repo.get("owner", {}).get("login", payload.github_username)
+                            default_branch = primary_repo.get("default_branch", "main")
+                            repo_data = {
+                                "name": repo_name,
+                                "language": primary_repo.get("language", "JavaScript"),
+                                "fork": primary_repo.get("fork", False),
+                                "stargazers_count": primary_repo.get("stargazers_count", 0),
+                                "forks_count": primary_repo.get("forks_count", 0)
+                            }
 
-                        # Fetch file tree
-                        tree_resp = await client.get(
-                            f"https://api.github.com/repos/{owner}/{repo_name}/git/trees/{default_branch}?recursive=1",
-                            headers=headers
-                        )
-                        if tree_resp.status_code == 200:
-                            tree_json = tree_resp.json()
-                            tree_paths = [item["path"] for item in tree_json.get("tree", []) if "path" in item]
+                            # Fetch file tree
+                            tree_resp = await client.get(
+                                f"https://api.github.com/repos/{owner}/{repo_name}/git/trees/{default_branch}?recursive=1",
+                                headers=headers
+                            )
+                            if tree_resp.status_code == 200:
+                                tree_json = tree_resp.json()
+                                tree_paths = [item["path"] for item in tree_json.get("tree", []) if "path" in item]
 
-                        # Fetch commits
-                        commits_resp = await client.get(
-                            f"https://api.github.com/repos/{owner}/{repo_name}/commits?per_page=15",
-                            headers=headers
-                        )
-                        if commits_resp.status_code == 200:
-                            commits_json = commits_resp.json()
-                            if isinstance(commits_json, list):
-                                commits = commits_json
-            except Exception as net_err:
-                logger.warning(f"[{request_id}] GitHub API fetch warning: {net_err}")
+                            # Fetch commits
+                            commits_resp = await client.get(
+                                f"https://api.github.com/repos/{owner}/{repo_name}/commits?per_page=15",
+                                headers=headers
+                            )
+                            if commits_resp.status_code == 200:
+                                commits_json = commits_resp.json()
+                                if isinstance(commits_json, list):
+                                    commits = commits_json
+                except Exception as net_err:
+                    logger.warning(f"[{request_id}] GitHub API fetch warning: {net_err}")
 
         # Delegate directly to Module 3 RepositoryIntelligenceService
         repo_service = RepositoryIntelligenceService()
