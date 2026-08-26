@@ -149,7 +149,7 @@ from ace.router import proctor_router, start_proctor_engine, stop_proctor_engine
 app.include_router(proctor_router)
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def read_root():
     return {
         "service": "VeriProof Python AI Engine",
@@ -158,7 +158,7 @@ def read_root():
         "orchestration_matrix": "READY"
     }
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def read_health():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 # ==========================================
