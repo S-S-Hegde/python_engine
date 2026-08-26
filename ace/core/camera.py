@@ -48,21 +48,29 @@ class ThreadedCamera:
         if self._running:
             return self
 
-        self.cap = cv2.VideoCapture(self.src)
-        if not self.cap.isOpened():
-            raise RuntimeError(f"[ACE Camera] Failed to open video device at index {self.src}")
+        self.is_virtual = False
+        try:
+            self.cap = cv2.VideoCapture(self.src)
+            if not self.cap.isOpened():
+                self.cap = None
+                self.is_virtual = True
+        except Exception:
+            self.cap = None
+            self.is_virtual = True
 
-        # Set hardware capture properties
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-        self.cap.set(cv2.CAP_PROP_FPS, self.fps)
-        # Minimize backend buffer if supported by OS backend
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        if self.is_virtual:
+            print(f"[ACE Camera] Notice: Video device at index {self.src} unavailable (cloud/headless instance). Running in virtual frame mode.")
+        else:
+            # Set hardware capture properties
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+            self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            print(f"[ACE Camera] Stream started on device {self.src} ({self.width}x{self.height} @ {self.fps}FPS) [CLAHE Enhanced]")
 
         self._running = True
         self._thread = threading.Thread(target=self._capture_loop, name="ACE-CameraThread", daemon=True)
         self._thread.start()
-        print(f"[ACE Camera] Stream started on device {self.src} ({self.width}x{self.height} @ {self.fps}FPS) [CLAHE Enhanced]")
         return self
 
     def _enhance_low_light(self, frame: np.ndarray) -> np.ndarray:
@@ -83,11 +91,25 @@ class ThreadedCamera:
         prev_time = time.time()
         frame_counter = 0
 
-        while self._running and self.cap and self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if not ret or frame is None:
-                time.sleep(0.01)
-                continue
+        while self._running:
+            if self.is_virtual or not self.cap or not self.cap.isOpened():
+                # Headless virtual frame generator
+                frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+                cv2.putText(
+                    frame,
+                    "ACE Virtual Feed [Headless]",
+                    (30, self.height // 2),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0, 255, 255),
+                    2,
+                )
+                time.sleep(1.0 / max(1, self.fps))
+            else:
+                ret, frame = self.cap.read()
+                if not ret or frame is None:
+                    time.sleep(0.01)
+                    continue
 
             frame_counter += 1
             now = time.time()
@@ -97,7 +119,7 @@ class ThreadedCamera:
                 prev_time = now
 
             # Apply low-light equalizer
-            enhanced_frame = self._enhance_low_light(frame)
+            enhanced_frame = self._enhance_low_light(frame) if not self.is_virtual else frame
 
             # If queue is full, discard the old frame to maintain zero latency
             if not self._frame_queue.empty():

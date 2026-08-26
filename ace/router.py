@@ -97,13 +97,16 @@ def start_proctor_engine():
     """Start proctoring engine and background workers."""
     global telemetry_broadcast_task
     print("[ACE Proctor] Starting hardware camera and AI proctoring engine...")
-    engine.logger.subscribe(on_violation_event)
-    engine.start()
     try:
-        telemetry_broadcast_task = asyncio.create_task(_periodic_telemetry_broadcaster())
-    except RuntimeError:
-        pass
-    print("[ACE Proctor] Engine ready on /api/stream and /ws/telemetry.")
+        engine.logger.subscribe(on_violation_event)
+        engine.start()
+        try:
+            telemetry_broadcast_task = asyncio.create_task(_periodic_telemetry_broadcaster())
+        except RuntimeError:
+            pass
+        print("[ACE Proctor] Engine ready on /api/stream and /ws/telemetry.")
+    except Exception as e:
+        print(f"[ACE Proctor] Warning during background proctor startup: {e}. FastAPI server active.")
 
 
 def stop_proctor_engine():
