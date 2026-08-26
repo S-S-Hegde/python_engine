@@ -1,7 +1,7 @@
 import uuid
 import datetime
 import time
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional, Union
 
 from .models import (
     PipelineRequest,
