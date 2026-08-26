@@ -6,3 +6,11 @@ httpx
 pypdf
 python-dotenv
 python-multipart
+numpy
+opencv-python-headless
+mediapipe
+ultralytics
+psutil
+requests
+openai
+groq
