@@ -12,6 +12,7 @@ from dotenv import load_dotenv  # <-- New import for environment variables
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 import google.generativeai as genai
 import httpx
@@ -140,6 +141,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Mount ACE Anti-Cheat Proctoring Router
 from ace.router import proctor_router, start_proctor_engine, stop_proctor_engine
