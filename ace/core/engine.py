@@ -297,11 +297,12 @@ class ProctorEngine:
                         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     }
 
-        print("[ACE Engine] Initializing MediaPipe Face & Pose Trackers...")
+        print("[ACE Engine] Initializing Lightweight OpenCV Face & Multi-Face Tracker...")
         self.tracker = FaceProctorTracker(baseline=self.baseline)
 
-        print("[ACE Engine] Initializing YOLOv10 Worker Thread...")
-        self.detector = YOLODetectorWorker().start()
+        print("[ACE Engine] Initializing Lightweight Background Detector Worker...")
+        self.detector = YOLODetectorWorker()
+        self.detector.start()
 
         # Start 60-second exam session timer
         self.exam_start_time = time.time()
