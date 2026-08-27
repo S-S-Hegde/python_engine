@@ -362,10 +362,15 @@ async def startup_event():
         AIOrchestratorService.print_provider_status_matrix()
     except Exception as e:
         logger.warning(f"AI Provider status matrix warning: {e}")
-    try:
-        start_proctor_engine()
-    except Exception as e:
-        logger.warning(f"Proctor engine startup warning: {e}")
+
+    # Headless Cloud Guard: Do not spin up physical webcam loops on cloud servers like Render
+    if os.getenv("ENABLE_LOCAL_CAMERA_PROCTOR", "false").lower() == "true":
+        try:
+            start_proctor_engine()
+        except Exception as e:
+            logger.warning(f"Proctor engine startup warning: {e}")
+    else:
+        logger.info("ACE Proctoring Router active. Hardware camera loop idle (Client-driven mode).")
 
 @app.on_event("shutdown")
 async def shutdown_event():

@@ -269,7 +269,7 @@ class ViolationLogger:
                     b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
                     encoded_burst.append({"tag": tag, "base64": b64})
 
-            backend_base = os.getenv("NODE_API_URL", "http://localhost:5000").rstrip("/")
+            backend_base = os.getenv("NODE_API_URL", "https://veriproof-backend.onrender.com").rstrip("/")
             backend_url = f"{backend_base}/api/exams/record-violation-snapshot"
             payload = {
                 "type": violation_type,
