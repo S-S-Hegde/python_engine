@@ -161,6 +161,11 @@ def read_root():
 @app.api_route("/health", methods=["GET", "HEAD"])
 def read_health():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+@app.api_route("/api/ping", methods=["GET", "HEAD"])
+@app.api_route("/ping", methods=["GET", "HEAD"])
+def read_ping():
+    return {"status": "ok", "message": "Python Engine Active", "timestamp": datetime.now(timezone.utc).isoformat()}
 # ==========================================
 # REQUEST MODELS
 # ==========================================
